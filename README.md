@@ -1,1 +1,1 @@
-# Constructive Distortion: Multimodal LLMs with Attention‑Aware Image Warping
+# Constructive Distortion: Improving MLLMs with Attention-Aware Image Warping
