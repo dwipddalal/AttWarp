@@ -1,14 +1,12 @@
-"""
-Utility wrappers for LLaVA attention maps (absolute + relative, arbitrary layer).
-
-Import this module **after** the original `llava_methods.py` is on PYTHONPATH.
-"""
-
 from typing import Dict, List
 import cv2, torch, numpy as np
 from PIL import Image
-from llava_methods import IMAGE_TOKEN_INDEX, NUM_PATCHES   # constants
-
+from llava_methods import IMAGE_TOKEN_INDEX, NUM_PATCHES   
+import os, json, glob, csv, random
+from pathlib import Path
+import numpy as np, cv2, torch
+from PIL import Image
+from tqdm import tqdm
 # ---------------------------------------------------------------------------
 # Because rel_attention_llava() is hard-wired to ATT_LAYER=14, we re-implement
 # the low-level attention extraction so we can choose any layer L.
@@ -70,29 +68,6 @@ def get_abs_rel_maps_llava(img_path: str,
     del out, gnt, inp, gen
     torch.cuda.empty_cache()
     return maps
-#!/usr/bin/env python3
-# --------------------------------------------------------------
-#  eval_attention_layers_llava.py
-# --------------------------------------------------------------
-"""
-Run the TextVQA attention-alignment experiment with **LLaVA-1.5-7B**.
-
-Outputs:
-  /home/skan/appendix_attention_maps/
-        results_llava.csv
-        summary_llava.txt
-        per_image/<dataset_id>/            (same folders as Qwen)
-            ├─ <id>_question.txt           (only written if absent)
-            ├─ <id>_orig.png               (copied once)
-            ├─ <id>_<layer>_absolute.png   (18×27 heat-map)
-            └─ <id>_<layer>_relative.png
-"""
-
-import os, json, glob, csv, random
-from pathlib import Path
-import numpy as np, cv2, torch
-from PIL import Image
-from tqdm import tqdm
 
 # ----------------------------- paths & constants ---------------------------
 IMG_DIR   = "/home/skan/text_vqa/outputs_all/exp21_rt_def_all/original_images"
@@ -166,7 +141,7 @@ with CSV_PATH.open("w",newline="") as csvf:
         try:
             maps=get_abs_rel_maps_llava(img_path,question,LAYERS,model,processor)
         except Exception as e:
-            print(f"  ⚠️  {did}  skipped ({e})"); continue
+            print(f" skipped ({e})"); continue
 
         # bbox
         b_raw=bbox_lookup[did]; box=None
