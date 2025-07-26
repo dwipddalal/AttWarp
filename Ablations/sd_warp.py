@@ -455,8 +455,6 @@ def run(
         )
         cur_input = out_path
 
-    # print(f"[main] ✅ Final warped image: {output_warp}")
-
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--image",       default="/home/skan/test_images/china.png")
