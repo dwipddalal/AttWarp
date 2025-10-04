@@ -1,4 +1,8 @@
-# Constructive Distortion: Improving MLLMs with Attention-Aware Image Warping
+# Constructive Distortion: Improving MLLMs with Attention-Guided Image Warping
 
 [![Paper]()
 [![Project]()
+
+## 📝 Introduction
+
+This repository contains the code used in the paper - **Constructive Distortion: Improving MLLMs with Attention-Guided Image Warping**.
