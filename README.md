@@ -42,7 +42,7 @@ Implementation of attention extraction for:
 - [ ] Qwen
 - [ ] InternVL3
 - [ ] InstructBLIP
-- [ ] Stable Diffusion
+- [x] Stable Diffusion
 
 ---
 
