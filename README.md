@@ -56,7 +56,7 @@ Implementation of attention extraction for:
 ### Attention Redistribution Code
 - [ ] Calculation
 - [ ] Implementation
-- [ ] Metrics
+- [x] Metrics
 
 ---
 
