@@ -37,9 +37,9 @@ If your setup is correct the above code will return the number reported in table
 
 ## Qualitative Results
 
-<img width="750" height="863" alt="image" src="https://github.com/user-attachments/assets/0cc1b50f-7e6f-4ffc-aaea-6c8e064ea48d" />
+<img width="550" height="663" alt="image" src="https://github.com/user-attachments/assets/0cc1b50f-7e6f-4ffc-aaea-6c8e064ea48d" />
 
-<img width="750" height="863" alt="image" src="https://github.com/user-attachments/assets/7df7a6ae-e35a-4524-874b-5547a7af4e2f" />
+<img width="550" height="663" alt="image" src="https://github.com/user-attachments/assets/7df7a6ae-e35a-4524-874b-5547a7af4e2f" />
 
 
 ## ✅ TODO List
