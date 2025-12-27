@@ -10,6 +10,10 @@
 This repository contains the code, model weights, and environment setup used in the paper - **Constructive Distortion: Improving MLLMs with Attention-Guided Image Warping**.
 
 
+<img width="1683" height="609" alt="image" src="https://github.com/user-attachments/assets/7ea03106-4615-4271-b931-e803be272f28" />
+
+
+
 ## MLLM Models 
 
 The code and environment setup for MLLM models used in this work can be found here:
