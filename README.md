@@ -74,6 +74,38 @@ model/
     └── wandb_utils.py             -> Weights & Biases initialization and logging helpers.
 ```
 
+### Training hyperparameters
+
+The MarginalNet full-dataset training setup uses the following configurable defaults:
+
+- **Training**
+  - **`--epochs`** (default: `50`) — number of training epochs.
+  - **`--batch-size`** (default: `128`) — samples per training batch.
+  - **`--lr`** (default: `3e-4`) — AdamW learning rate.
+  - **`--wd`** (default: `1e-4`) — AdamW weight decay.
+  - **`--workers`** (default: `4`) — dataloader worker processes.
+- **Numerical stability**
+  - **`eps`** (default: `1e-6`) — normalization clamp used in `MarginalNet.safe_softmax(...)`.
+- **Model**
+  - **`hidden`** (default: `256`) — channel width of MarginalNet.
+- **Optimization**
+  - **`grad_clip`** (default: `1.0`) — max grad-norm (`clip_grad_norm_`).
+- **Loss weights / targets**
+  - **`w_cdf`** (default: `10.0`) — multiplier on the image-resolution PDF L1 loss term.
+- **Smoothing / stabilizers**
+  - **`alpha0`** (default: `0.0`) — initial uniform-mix factor for predicted PDFs.
+  - **`alpha_decay_steps`** (default: `2000`) — steps over which `alpha` decays linearly to `0`.
+
+### Hardcoded training constants
+
+These training settings are fixed in `train_scripts/marginalnet_full_dataset/trainer.py`:
+
+- **Train/val split**: `0.9 / 0.1`.
+- **Attention processing**: downsample attention maps to `(24, 24)` via `adaptive_avg_pool2d(...)` for supervision and visualization.
+- **Optimizer**: `torch.optim.AdamW` (no LR scheduler).
+- **Mixed precision**: AMP autocast + `GradScaler` when running on CUDA.
+- **Loss**: image-resolution PDF L1 loss, scaled by `w_cdf`.
+
 
 ## Qualitative Results
 
