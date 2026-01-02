@@ -46,8 +46,8 @@ conda env create -f attwarp.yaml
 
 ```bash
 cd /path/to/AttWarp
-python "Attention Guided Warping"/main_textvqa.py
-python Experiments/TextVQA/evaluate_textvqa_accuracy.py
+python "Attention Guided Warping"/main.py
+python "Attention Guided Warping"/TextVQA/evaluate_accuracy.py
 ```
 
 If your setup is correct, the above commands will return the number reported in Table 1 of the paper.
