@@ -23,11 +23,11 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 
 MODEL_NAME = "llava-v1.5-7b" # Or the appropriate model for TextVQA processing
 TEXTVQA_JSON_PATH = 'textVQA/TextVQA_0.5.1_val.json'
-TEXTVQA_IMAGE_DIR = '/home/dwip2/CLIP/textVQA/train_images'
+TEXTVQA_IMAGE_DIR = 'path to directory'
 DOWNLOAD_IMAGES = False
 
 # Define base output directory for TextVQA results (match POPE script pattern)
-OUTPUT_BASE_DIR = "/scratch/dwip2/CLIP/results/textvqa_processed_full"
+OUTPUT_BASE_DIR = "results/textvqa_processed_full"
 ATTENTION_MAPS_DIR = os.path.join(OUTPUT_BASE_DIR, "attention_maps")
 WARPED_IMAGES_DIR = os.path.join(OUTPUT_BASE_DIR, "warped_images")
 VISUALIZATIONS_DIR = os.path.join(OUTPUT_BASE_DIR, "visualizations") # Keep for potential future use
