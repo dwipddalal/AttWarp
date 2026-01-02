@@ -36,11 +36,14 @@ https://github.com/saccharomycetes/mllms_know
 
 ## Setup
 
-Create the environment using the provided YAML file:
+From the repository root, create the conda environment once and then activate it whenever you work on the model code:
 
 ```bash
 conda env create -f attwarp.yaml
+conda activate attwarp
 ```
+
+If you already created the environment, just run the activation step.
 
 ## Quick Setup Check
 
@@ -71,18 +74,6 @@ model/
     └── wandb_utils.py             -> Weights & Biases initialization and logging helpers.
 ```
 
-## Environment activation
-
-From the repository root, create the conda environment once and then activate it whenever you work on the model code:
-
-```bash
-conda env create -f attwarp.yaml
-conda activate attwarp
-```
-
-If you already created the environment, just run the activation step.
-
-If your setup is correct, the above commands will return the number reported in Table 1 of the paper.
 
 ## Qualitative Results
 
