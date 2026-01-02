@@ -88,6 +88,22 @@ model/
 - Upload an image, enter a question, and click **Generate**.
 - The demo uses a quantized LLaVA model to run on free Colab GPUs.
 - Expected setup and model download time: ~10 minutes.
+- The webiste will appear in the colab cell. 
+  
+```
+Running in web server mode...
+IN_COLAB: True, CLOUDFLARE_AVAILABLE: True
+Colab detected - using Cloudflare tunnel. Please use Cloudflare URL
+URL: https://omaha-governor-high-sunrise.trycloudflare.com
+Local: http://localhost:5000
+ * Serving Flask app 'run'
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.28.0.12:5000
+
+```
 
 <img width="1350" height="920" alt="Colab Demo" src="https://github.com/user-attachments/assets/ceab3038-b9fd-4220-b192-0873a0eb6947" />
 
