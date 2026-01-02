@@ -47,6 +47,7 @@ If your setup is correct the above code will return the number reported in table
 - Run the setup cell below (setups up dependencies).
 - After running next cell Open the printed Cloudflare URL to open demo, initalizing model downloading and warm up.
 - Upload an image, enter a question, click Generate.
+- Note to make it work on the free gpus of google colab the llava model that we are using in it is quantized version. 
 - Expected setup and model download time ~ 10 mins
 - The website output looks like following:
 
