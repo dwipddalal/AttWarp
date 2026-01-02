@@ -24,7 +24,7 @@ from LLaVA.llava.mm_utils import tokenizer_image_token, process_images, IMAGE_TO
 # --- Path constants: replace absolute paths with relative ---
 
 # BASE_DIR = os.path.join(os.path.dirname(__file__), "results", "textvqa")
-BASE_DIR = "/shared/nas2/dwip2/CLIP/results/textvqa_processed_full"
+BASE_DIR = "results/textvqa_processed_full"
 WARPED_IMAGES_DIR = os.path.join(BASE_DIR, "warped_images")
 METADATA_DIR = os.path.join(BASE_DIR, "metadata")
 OUTPUT_DIR = os.path.join(BASE_DIR, "accuracy_results_llava")
