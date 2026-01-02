@@ -42,6 +42,18 @@ If your setup is correct the above code will return the number reported in table
 <img width="550" height="663" alt="image" src="https://github.com/user-attachments/assets/7df7a6ae-e35a-4524-874b-5547a7af4e2f" />
 
 
+## The Google Colab Demo
+
+- Run the setup cell below (setups up dependencies).
+- After running next cell Open the printed Cloudflare URL to open demo, initalizing model downloading and warm up.
+- Upload an image, enter a question, click Generate.
+- Expected setup and model download time ~ 10 mins
+- The website output looks like following:
+
+<img width="1350" height="920" alt="image" src="https://github.com/user-attachments/assets/ceab3038-b9fd-4220-b192-0873a0eb6947" />
+
+
+
 ## 📧 Contact
 
 For questions or support, please contact:
