@@ -42,49 +42,6 @@ If your setup is correct the above code will return the number reported in table
 <img width="550" height="663" alt="image" src="https://github.com/user-attachments/assets/7df7a6ae-e35a-4524-874b-5547a7af4e2f" />
 
 
-## ✅ TODO List
-
-> Upcoming updates tracker .  
-
----
-
-### AttWarp Map Extraction Code
-Implementation of attention extraction for:
-- [ ] LLaVA
-- [ ] Qwen
-- [ ] InternVL3
-- [ ] InstructBLIP
-- [x] Stable Diffusion
-
----
-
-### Open-Vocabulary Object Detection with AttWarp
-- [ ] Lisa-AttWarp code
-- [ ] Inverse warping code
-- [ ] Eval scripts
-
----
-
-### Attention Redistribution Code
-- [x] Calculation
-- [x] Implementation
-- [x] Metrics
-
----
-
-### AttWarp-Distill Code
-- [ ] Model-architecture
-- [ ] Model weights 
-- [ ] Evaluation and execution scripts.
-
----
-
-### AttWarp-Chains Code
-- [ ] Implementation Code 
-- [ ] Termination Code
-
-
-
 ## 📧 Contact
 
 For questions or support, please contact:
