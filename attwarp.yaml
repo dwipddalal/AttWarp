@@ -1,0 +1,57 @@
+name: attwarp
+
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+
+dependencies:
+  # LLaVA upstream typically uses Python 3.10.
+  - python=3.10
+  - pip
+
+  # ---- PyTorch (choose CPU or CUDA) ----
+  # CPU-only (default):
+  - cpuonly
+  - pytorch=2.1.2
+  - torchvision=0.16.2
+  #
+  # If you want CUDA instead, comment out `cpuonly` and add one of these:
+  # - pytorch-cuda=12.1
+  # (or `pytorch-cuda=11.8` depending on your drivers)
+
+  # ---- Python deps (mirrors `LLaVA/pyproject.toml`) ----
+  - pip:
+      # Core
+      - transformers==4.37.2
+      - tokenizers==0.15.1
+      - sentencepiece==0.1.99
+      - shortuuid
+
+      # Training/inference helpers
+      - accelerate==0.21.0
+      - peft
+      - bitsandbytes
+
+      # Utilities / serving
+      - pydantic
+      - "markdown2[all]"
+      - numpy
+      - scikit-learn==1.2.2
+      - gradio==4.16.0
+      - gradio_client==0.8.1
+      - requests
+      - httpx==0.24.0
+      - uvicorn
+      - fastapi
+
+      # Vision utils
+      - einops==0.6.1
+      - einops-exts==0.0.4
+      - timm==0.6.13
+
+      # Install the vendored LLaVA package from this repo
+      # (run `conda env create -f attwarp.yaml` from the repo root)
+      - -e ./LLaVA
+
+
