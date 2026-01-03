@@ -157,6 +157,11 @@ If you find our work or code useful, please cite:
 }
 ```
 
+## Acknowledgement
+- [LLaVA](https://github.com/haotian-liu/LLaVA)
+- [Qwen](https://github.com/QwenLM)
+- [Mllm knows where to look](https://github.com/saccharomycetes/mllms_know) 
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
