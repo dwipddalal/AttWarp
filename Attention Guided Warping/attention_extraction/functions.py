@@ -1,23 +1,23 @@
 import argparse
 import torch
 
-from llava.constants import ( # change from apillava to llava
+from llava.constants import (
     IMAGE_TOKEN_INDEX,
     DEFAULT_IMAGE_TOKEN,
     DEFAULT_IM_START_TOKEN,
     DEFAULT_IM_END_TOKEN,
     IMAGE_PLACEHOLDER,
 )
-from llava.conversation import conv_templates, SeparatorStyle # change from apillava to llava, the did some forceful changes but I effectively ignored them
-from llava.model.builder import load_pretrained_model # change from apillava to llava (note there is a difference in the LLaVA config and AutoConfig)
-from llava.utils import disable_torch_init    # change from apillava to llava
-from llava.mm_utils import (   # change from apillava to llava
+from llava.conversation import conv_templates, SeparatorStyle
+from llava.model.builder import load_pretrained_model
+from llava.utils import disable_torch_init
+from llava.mm_utils import (
     process_images,
     tokenizer_image_token,
     get_model_name_from_path,
     KeywordsStoppingCriteria,
 )
-from transformers.generation.stopping_criteria import MaxNewTokensCriteria  # change from apillava to transformers
+from transformers.generation.stopping_criteria import MaxNewTokensCriteria
 
 from PIL import Image
 import requests
@@ -98,7 +98,7 @@ def getmask(args):
         raise ValueError("image_file should be str or PIL.Image")
     
     images = [image.convert('RGB') if image.mode != 'RGB' else image for image in images]
-        
+
     images_tensor = process_images(
         images,
         image_processor,
@@ -110,6 +110,24 @@ def getmask(args):
         .unsqueeze(0)
         .cuda()
     )
+
+    # Find and set image token range for the hook logger
+    # In LLaVA, IMAGE_TOKEN_INDEX (-200) in input_ids is replaced with 576 image tokens
+    # Find where the image token placeholder is
+    input_ids_list = input_ids[0].tolist()
+    try:
+        image_token_pos = input_ids_list.index(IMAGE_TOKEN_INDEX)
+    except ValueError:
+        # If not found, assume image tokens start after BOS token
+        image_token_pos = 1
+
+    # LLaVA-1.5 uses 24x24 = 576 image patches
+    num_image_tokens = 576
+
+    # Set the image token range in the hook logger
+    # Note: During generation, input_ids will be expanded to include image tokens
+    # The actual positions will be: image_token_pos to image_token_pos + num_image_tokens
+    hl.set_image_token_range(image_token_pos, image_token_pos + num_image_tokens)
 
     stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
@@ -126,22 +144,39 @@ def getmask(args):
             temperature=args.temperature,
             top_p=args.top_p,
             num_beams=args.num_beams,
-            # max_new_tokens=args.max_new_tokens,
+            max_new_tokens=args.max_new_tokens,
             use_cache=True,
             stopping_criteria=stopping_criteria,
+            output_attentions=True,  # Required for attention hook to work
+            return_dict_in_generate=True,
         )
 
-    attention_output = hl.finalize().view(24,24)
+    # Handle both GenerateOutput (dict-like) and tensor returns
+    if hasattr(output_ids, 'sequences'):
+        output_sequences = output_ids.sequences
+    else:
+        output_sequences = output_ids
+
+    attention_output = hl.finalize().view(24, 24)
 
     input_token_len = input_ids.shape[1]
-    n_diff_input_output = (input_ids != output_ids[:, :input_token_len]).sum().item()
-    if n_diff_input_output > 0:
-        print(
-            f"[Warning] {n_diff_input_output} output_ids are not the same as the input_ids"
-        )
+    output_len = output_sequences.shape[1]
+
+    # Handle case where output contains only new tokens vs full sequence
+    if output_len >= input_token_len:
+        # Output includes input tokens - extract only generated part
+        n_diff_input_output = (input_ids != output_sequences[:, :input_token_len]).sum().item()
+        if n_diff_input_output > 0:
+            print(
+                f"[Warning] {n_diff_input_output} output_ids are not the same as the input_ids"
+            )
+        generated_ids = output_sequences[:, input_token_len:]
+    else:
+        # Output contains only new tokens
+        generated_ids = output_sequences
 
     outputs = tokenizer.batch_decode(
-        output_ids[:, input_token_len:].cpu(), skip_special_tokens=True
+        generated_ids.cpu(), skip_special_tokens=True
     )[0]
     outputs = outputs.strip()
     if outputs.endswith(stop_str):
