@@ -25,10 +25,19 @@ queries = [q_env] if q_env else [default_query]
 
 def example_workflow():
     global images, mota_mask  # Ensure variables are accessible in main
-    # If you are using the llava_api:
-    from apiprompting import llava_api
+    import sys
+    import os
+
+    # Ensure the attention_extraction module is importable
+    _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+    _CLIP_ROOT = os.path.dirname(_THIS_DIR)
+    LLAVA_DIR = os.path.join(_CLIP_ROOT, "LLaVA")
+    if os.path.isdir(LLAVA_DIR) and LLAVA_DIR not in sys.path:
+        sys.path.insert(0, LLAVA_DIR)
+
+    from attention_extraction.llava import llava_api
     import torch
-    # import pdb
+
     # 'images' and 'queries' are already set above from environment variables or defaults
     masked_images, attention_maps, mota_mask = llava_api(images, queries, model_name="llava-v1.5-7b")
 

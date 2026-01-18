@@ -15,19 +15,40 @@ import requests
 import matplotlib.pyplot as plt # Needed for TextVQADataset visualization method (if used)
 from torch.utils.data import Dataset, DataLoader
 
-from new_method import save_warped_image, llava_api
+from new_method import save_warped_image
+# Ensure official LLaVA package ('llava') is importable BEFORE adding the
+# attention_extraction folder (which contains a local llava.py util) to avoid name clashes.
+_CLIP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LLAVA_DIR = os.path.join(_CLIP_ROOT, "LLaVA")
+if os.path.isdir(LLAVA_DIR) and LLAVA_DIR not in sys.path:
+    sys.path.insert(0, LLAVA_DIR)
+
+# This script lives in finalizing_the_code/, so attention_extraction is a sibling folder.
+ATTN_EXTRACT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "attention_extraction")
+
+# Import as a submodule so that attention_extraction/llava.py never shadows the real `llava` package.
+from attention_extraction.functions import getmask, get_model
+# Import hook_logger from the local attention_extraction/llava.py without shadowing 'llava' package
+import importlib.util as _importlib_util
+_LLAVA_UTIL_PATH = os.path.join(ATTN_EXTRACT_DIR, "llava.py")
+_spec = _importlib_util.spec_from_file_location("ae_llava_util", _LLAVA_UTIL_PATH)
+ae_llava_util = _importlib_util.module_from_spec(_spec)
+assert _spec.loader is not None
+_spec.loader.exec_module(ae_llava_util)
+hook_logger = ae_llava_util.hook_logger
+blend_mask = ae_llava_util.blend_mask
 
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:32"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
 
 MODEL_NAME = "llava-v1.5-7b" # Or the appropriate model for TextVQA processing
-TEXTVQA_JSON_PATH = 'textVQA/TextVQA_0.5.1_val.json'
-TEXTVQA_IMAGE_DIR = 'path to directory'
+TEXTVQA_JSON_PATH = '/shared/nas2/dwip2/data/dataloader/textvqa/TextVQA_0.5.1_val.json'
+TEXTVQA_IMAGE_DIR = '/shared/nas2/dwip2/data/dataloader/textvqa/train_images'
 DOWNLOAD_IMAGES = False
 
 # Define base output directory for TextVQA results (match POPE script pattern)
-OUTPUT_BASE_DIR = "results/textvqa_processed_full"
+OUTPUT_BASE_DIR = "/shared/nas2/dwip2/CLIP/results/textvqa_processed_my_method"
 ATTENTION_MAPS_DIR = os.path.join(OUTPUT_BASE_DIR, "attention_maps")
 WARPED_IMAGES_DIR = os.path.join(OUTPUT_BASE_DIR, "warped_images")
 VISUALIZATIONS_DIR = os.path.join(OUTPUT_BASE_DIR, "visualizations") # Keep for potential future use
@@ -59,10 +80,7 @@ DEFAULT_APPLY_INVERSE = False
 
 # --- TextVQA Dataset Class (Copied & adapted from textvqa_processor.py) ---
 class TextVQADataset(Dataset):
-    """
-    PyTorch Dataset for TextVQA data.
-    Loads JSON and handles image fetching (local cache or download).
-    """
+
     def __init__(self, json_path, image_dir=None, download_images=False, transform=None):
         self.json_path = json_path
         self.image_dir = image_dir
@@ -183,22 +201,12 @@ def load_checkpoint(file_path):
 
 # --- Main Processing Logic ---
 def main():
-    print(f"Starting TextVQA processing. Results will be saved in {OUTPUT_BASE_DIR}")
 
-    # Load dataset
-    try:
-        dataset = TextVQADataset(
-            json_path=TEXTVQA_JSON_PATH,
-            image_dir=TEXTVQA_IMAGE_DIR,
-            download_images=DOWNLOAD_IMAGES
-        )
-    except Exception as e:
-        print(f"Fatal Error: Could not initialize TextVQADataset: {e}")
-        sys.exit(1)
-
-    if len(dataset) == 0:
-        print("Dataset is empty. Exiting.")
-        sys.exit(0)
+    dataset = TextVQADataset(
+        json_path=TEXTVQA_JSON_PATH,
+        image_dir=TEXTVQA_IMAGE_DIR,
+        download_images=DOWNLOAD_IMAGES
+    )
 
     # Prepare batch data (load images and questions)
     batch_images = []
@@ -293,6 +301,14 @@ def main():
 
     print(f"Processing {len(remaining_internal_indices)} remaining items out of {num_to_process} total prepared.")
 
+    # --- Load LLaVA model once and set up hook logger ---
+    try:
+        tokenizer, model, image_processor, context_len, inner_model_name = get_model(MODEL_NAME)
+        hl = hook_logger(model, model.device, layer_index=20)
+    except Exception as load_err:
+        print(f"Error loading LLaVA model or setting hook: {load_err}")
+        return 1
+
     # --- Processing Loop (Chunking) ---
     chunk_size = 100 # Align with POPE processing chunk size
     for chunk_start in range(0, len(remaining_internal_indices), chunk_size):
@@ -306,14 +322,45 @@ def main():
         print(f"\nProcessing chunk {chunk_start//chunk_size + 1}/{(len(remaining_internal_indices) + chunk_size - 1) // chunk_size}, internal indices {current_chunk_internal_indices[0]}-{current_chunk_internal_indices[-1]}")
 
         try:
-            # **** Call the processing API (Adapt this call if needed) ****
-            # Assuming llava_api takes lists of PIL images and questions
-            masked_images, attention_maps, batch_mota_masks = llava_api(
-                chunk_images, # Pass PIL images directly
-                chunk_questions,
-                model_name=MODEL_NAME
-            )
-            # **** End API Call ****
+            # **** Run attention extraction per item without using j ****
+            masked_images = []
+            attention_maps = []
+            batch_mota_masks = []
+            # Default visualization parameters (match attention_extraction defaults)
+            enhance_coe = 10
+            kernel_size = 3
+            from PIL import Image as _PILImage  # avoid alias conflicts
+            interpolate_method = getattr(_PILImage, "LANCZOS")
+            grayscale = 0
+
+            for img, question in tqdm(zip(chunk_images, chunk_questions), total=len(chunk_images), desc="Processing images"):
+                # Reset hook logger for each new image/question
+                hl.reinit()
+
+                # Build arg bundle expected by getmask
+                args = type('Args', (), {
+                    "hl": hl,
+                    "model_name": MODEL_NAME,
+                    "model": model,
+                    "tokenizer": tokenizer,
+                    "image_processor": image_processor,
+                    "context_len": context_len,
+                    "query": question,
+                    "conv_mode": None,
+                    "image_file": img,
+                    "sep": ",",
+                    "temperature": 0,
+                    "top_p": None,
+                    "num_beams": 1,
+                    "max_new_tokens": 20,
+                })()
+                mask_24x24, _out_text = getmask(args)  # torch.Tensor [24,24]
+                # Save raw attention tensor in (1,1,24,24) format to match downstream handling
+                attn_tensor = mask_24x24.clone().unsqueeze(0).unsqueeze(0)
+                attention_maps.append(attn_tensor)
+                merged_image, mota_mask = blend_mask(img, mask_24x24, enhance_coe, kernel_size, interpolate_method, grayscale)
+                masked_images.append(merged_image)
+                batch_mota_masks.append(mota_mask)
 
             # --- Validate API Output Sizes ---
             api_outputs_valid = True
@@ -471,16 +518,18 @@ def main():
                             # Ensure we have the original image for warping
                             if isinstance(original_image, Image.Image):
                                 success = save_warped_image(
-                                    original_image, # Use the already loaded original image
-                                    mota_mask_np,
-                                    warped_output_path,
-                                    None, # No separate visualization needed here
-                                    DEFAULT_WIDTH,
-                                    DEFAULT_HEIGHT,
-                                    "identity", # Hardcode transform type
-                                    DEFAULT_EXP_SCALE,
-                                    DEFAULT_EXP_DIVISOR,
-                                    DEFAULT_APPLY_INVERSE
+                                    image_path=original_image,
+                                    att_map=mota_mask_np,
+                                    original_image_save_path=None,
+                                    masked_overlay_save_path=None,
+                                    output_path=warped_output_path,
+                                    vis_path=None,
+                                    width=DEFAULT_WIDTH,
+                                    height=DEFAULT_HEIGHT,
+                                    transform="identity",
+                                    exp_scale=DEFAULT_EXP_SCALE,
+                                    exp_divisor=DEFAULT_EXP_DIVISOR,
+                                    apply_inverse=DEFAULT_APPLY_INVERSE
                                 )
                                 if success:
                                     metadata["saved_paths"]["warped_image_identity"] = warped_output_path
