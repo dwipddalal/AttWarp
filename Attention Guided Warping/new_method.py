@@ -13,6 +13,10 @@ import pdb
 import torch
 import pdb
 
+# Runtime cache so we can reuse the same loaded LLaVA model for a "second pass"
+# on the warped image without re-loading weights.
+LLAVA_RUNTIME = {}
+
 # Allow external override via environment variables
 img_env = os.getenv("IMAGE_PATH")
 q_env   = os.getenv("QUESTION_TEXT")
@@ -24,89 +28,106 @@ images  = [img_env] if img_env else [default_image]
 queries = [q_env] if q_env else [default_query]
 
 def example_workflow():
-    global images, mota_mask  # Ensure variables are accessible in main
-    import sys
-    import os
+    """
+    Example workflow using the attention extraction module directly.
+    Uses get_model, hook_logger, getmask, and blend_mask functions.
+    """
+    global images, mota_mask
 
-    # Ensure the attention_extraction module is importable
+    # Ensure the LLaVA package is importable
     _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
     _CLIP_ROOT = os.path.dirname(_THIS_DIR)
     LLAVA_DIR = os.path.join(_CLIP_ROOT, "LLaVA")
     if os.path.isdir(LLAVA_DIR) and LLAVA_DIR not in sys.path:
         sys.path.insert(0, LLAVA_DIR)
 
-    from attention_extraction.llava import llava_api
-    import torch
+    from attention_extraction.functions import getmask, get_model
+    from attention_extraction.llava import hook_logger, blend_mask
 
-    # 'images' and 'queries' are already set above from environment variables or defaults
-    masked_images, attention_maps, mota_mask = llava_api(images, queries, model_name="llava-v1.5-7b")
+    # Configuration
+    model_name = "llava-v1.5-7b"
+    layer_index = 24
+    enhance_coe = 10
+    kernel_size = 3
+    interpolate_method = Image.LANCZOS
+    grayscale = 0
 
-    # save the attention maps as numpy arrays
-    for i, att_map in enumerate(attention_maps):
-        if isinstance(att_map, torch.Tensor):
-            att_map = att_map.detach().cpu().numpy()
-        np.save(f"/shared/nas2/dwip2/CLIP/attention_map_{i}.npy", att_map)
-        # pdb.set_trace()
-    # exit()
-    # Fix: Handle the case where mota_mask is a list
-    if isinstance(mota_mask, list):
-        print(f"mota_mask is a list with {len(mota_mask)} elements")
-        if mota_mask and len(mota_mask) > 0:
-            # Use the first element of the list
-            mota_mask = mota_mask[0]
-            print(f"Using first element of mota_mask list, which is type: {type(mota_mask)}")
+    # Load model once
+    print(f"Loading model: {model_name}")
+    tokenizer, model, image_processor, context_len, inner_model_name = get_model(model_name)
+    hl = hook_logger(model, model.device, layer_index=layer_index)
+    # Cache for reuse in main() (second pass on warped image)
+    LLAVA_RUNTIME.update({
+        "model_name": model_name,
+        "tokenizer": tokenizer,
+        "model": model,
+        "image_processor": image_processor,
+        "context_len": context_len,
+        "hl": hl,
+        "getmask": getmask,
+    })
+
+    # Process each image-query pair
+    for i, (image_path, query) in enumerate(zip(images, queries)):
+        print(f"\nProcessing image {i+1}/{len(images)}: {image_path}")
+        print(f"Query: {query}")
+
+        # Reset hook logger for each new image/question
+        hl.reinit()
+
+        # Load image
+        if isinstance(image_path, str):
+            image = Image.open(image_path).convert('RGB')
         else:
-            print("mota_mask list is empty. Creating a default mask.")
-            # Create a default mask if the list is empty
-            default_shape = (500, 500)  # Adjust as needed
-            mota_mask = Image.new('L', default_shape, 128)  # Create a gray mask
+            image = image_path
 
-    # Convert PIL Image to grayscale and save
-    if isinstance(mota_mask, Image.Image):
-        # Convert to grayscale if it's not already
-        if mota_mask.mode != 'L':
-            mota_mask_gray = mota_mask.convert('L')
-        else:
-            mota_mask_gray = mota_mask
-        
-        # Save as grayscale image
-        mota_mask_gray.save("/shared/nas2/dwip2/CLIP/mota_mask_gray.png")
-        
-        # Convert to numpy array and save
-        mota_mask_np = np.array(mota_mask_gray)
-        np.save("/shared/nas2/dwip2/CLIP/mota_mask.npy", mota_mask_np)
-        print(f"Saved mota_mask as grayscale image and numpy file. Shape: {mota_mask_np.shape}")
-        # pdb.set_trace()
-    else:
-        print(f"Warning: mota_mask is not a PIL Image, it's a {type(mota_mask)}")
-        # Try to convert to numpy array if it's neither a list nor PIL Image
-        try:
-            mota_mask_np = np.array(mota_mask)
-            print(f"Converted mota_mask to numpy array. Shape: {mota_mask_np.shape}")
-            np.save("/shared/nas2/dwip2/CLIP/mota_mask.npy", mota_mask_np)
-        except:
-            print("Could not convert mota_mask to numpy array. Creating a default mask.")
-            # Create a default mask
-            mota_mask_np = np.ones((500, 500), dtype=np.uint8) * 128
-            np.save("/shared/nas2/dwip2/CLIP/mota_mask.npy", mota_mask_np)
+        # Build args for getmask
+        args = type('Args', (), {
+            "hl": hl,
+            "model_name": model_name,
+            "model": model,
+            "tokenizer": tokenizer,
+            "image_processor": image_processor,
+            "context_len": context_len,
+            "query": query,
+            "conv_mode": None,
+            "image_file": image,
+            "sep": ",",
+            "temperature": 0,
+            "top_p": None,
+            "num_beams": 1,
+            "max_new_tokens": 20,
+        })()
 
-    # save the masked image
-    if masked_images and len(masked_images) > 0:
-        # PIL Image to NumPy array conversion for cv2
-        masked_img = masked_images[0]  # Get the first image from the list
-        if isinstance(masked_img, Image.Image):
-            # Convert PIL Image to numpy array
-            masked_img_np = np.array(masked_img)
-            # Convert RGB to BGR for OpenCV
-            if len(masked_img_np.shape) == 3 and masked_img_np.shape[2] == 3:
-                masked_img_np = cv2.cvtColor(masked_img_np, cv2.COLOR_RGB2BGR)
-            # Save using cv2
-            cv2.imwrite("/shared/nas2/dwip2/CLIP/mota_mask_image.png", masked_img_np)
+        # Get attention mask
+        mask_24x24, output_text = getmask(args)
+        print(f"Model output: {output_text}")
+        LLAVA_RUNTIME["query"] = query
+
+        # Save attention map
+        att_map = mask_24x24.clone().unsqueeze(0).unsqueeze(0)
+        att_map_np = att_map.detach().cpu().numpy()
+        np.save(f"/shared/nas2/dwip2/CLIP/attention_map_{i}.npy", att_map_np)
+        print(f"Saved attention map with shape: {att_map_np.shape}")
+
+        # Blend mask with image
+        merged_image, mota_mask = blend_mask(image, mask_24x24, enhance_coe, kernel_size, interpolate_method, grayscale)
+
+        # Save mota_mask
+        if isinstance(mota_mask, Image.Image):
+            mota_mask_gray = mota_mask.convert('L') if mota_mask.mode != 'L' else mota_mask
+            mota_mask_gray.save("/shared/nas2/dwip2/CLIP/mota_mask_gray.png")
+            mota_mask_np = np.array(mota_mask_gray)
+            np.save("/shared/nas2/dwip2/CLIP/mota_mask.npy", mota_mask_np)
+            print(f"Saved mota_mask with shape: {mota_mask_np.shape}")
+
+        # Save masked image
+        if isinstance(merged_image, Image.Image):
+            merged_img_np = np.array(merged_image)
+            if len(merged_img_np.shape) == 3 and merged_img_np.shape[2] == 3:
+                merged_img_np = cv2.cvtColor(merged_img_np, cv2.COLOR_RGB2BGR)
+            cv2.imwrite("/shared/nas2/dwip2/CLIP/mota_mask_image.png", merged_img_np)
             print("Saved masked image to /shared/nas2/dwip2/CLIP/mota_mask_image.png")
-        else:
-            print(f"Warning: masked_images[0] is not a PIL Image, it's a {type(masked_img)}")
-    else:
-        print("No masked images to save")
 
 
 # Define attention map transformation functions
@@ -558,6 +579,40 @@ def main():
         apply_inverse=args.apply_inverse,
         attention_alpha=args.attention_alpha
     )
+
+    if success and os.path.exists(warped_image_save_path) and LLAVA_RUNTIME.get("getmask") is not None:
+        try:
+            getmask = LLAVA_RUNTIME["getmask"]
+            hl = LLAVA_RUNTIME["hl"]
+            tokenizer = LLAVA_RUNTIME["tokenizer"]
+            model = LLAVA_RUNTIME["model"]
+            image_processor = LLAVA_RUNTIME["image_processor"]
+            context_len = LLAVA_RUNTIME["context_len"]
+            model_name = LLAVA_RUNTIME["model_name"]
+            query = LLAVA_RUNTIME.get("query", default_query)
+
+            warped_pil = Image.open(warped_image_save_path).convert("RGB")
+            hl.reinit()
+            warped_args = type('Args', (), {
+                "hl": hl,
+                "model_name": model_name,
+                "model": model,
+                "tokenizer": tokenizer,
+                "image_processor": image_processor,
+                "context_len": context_len,
+                "query": query,
+                "conv_mode": None,
+                "image_file": warped_pil,
+                "sep": ",",
+                "temperature": 0,
+                "top_p": None,
+                "num_beams": 1,
+                "max_new_tokens": 20,
+            })()
+            _mask2, warped_output_text = getmask(warped_args)
+            print(f"Warped image output: {warped_output_text}")
+        except Exception as e:
+            print(f"Warning: second-pass LLaVA inference on warped image failed: {e}")
     
     return 0 if success else 1
 
