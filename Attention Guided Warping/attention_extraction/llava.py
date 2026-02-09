@@ -39,7 +39,7 @@ class MaskHookLogger(object):
     Hook logger that captures attention weights from a specific layer during generation.
     Uses PyTorch's native register_forward_hook mechanism.
     """
-    def __init__(self, model, device, layer_index=24):
+    def __init__(self, model, device, layer_index=20):
         self.device = device
         self.attns = []
         self.model = model
@@ -108,8 +108,9 @@ class MaskHookLogger(object):
         # Shape: [batch, num_heads, num_image_tokens]
         image_attention = attn_weights[:, :, -1, st:ed].detach()
 
-        # Apply softmax over image tokens only and average across heads
-        image_attention = image_attention.softmax(dim=-1)
+        # Normalize the sliced attention to sum to 1 per head (re-normalize after slicing)
+        # Note: attn_weights are already post-softmax, so do NOT apply softmax again
+        image_attention = image_attention / (image_attention.sum(dim=-1, keepdim=True) + 1e-12)
         image_attention = image_attention.mean(dim=1)  # Average over heads
 
         self.attns.append(image_attention)  # [batch, num_image_tokens]
@@ -152,7 +153,7 @@ class MaskHookLogger(object):
             self.hook_handle = None
 
 
-def hook_logger(model, device, layer_index=24):
+def hook_logger(model, device, layer_index=20):
     """
     Create and register a hook logger for attention extraction.
 
@@ -162,7 +163,7 @@ def hook_logger(model, device, layer_index=24):
     Args:
         model: The LLaVA model
         device: The device to use
-        layer_index: Which transformer layer to hook (default: 24, the last layer for 7B model)
+        layer_index: Which transformer layer to hook (default: 20)
 
     Returns:
         MaskHookLogger instance
@@ -268,7 +269,7 @@ def blend_mask(image_path_or_pil_image, mask, enhance_coe, kernel_size, interpol
     merged_image = Image.fromarray(cv2.cvtColor(overlay_bgr, cv2.COLOR_BGR2RGB))
     return merged_image, mask
 
-def llava_api(images, queries, model_name, batch_size = 1, layer_index = 24, enhance_coe = 10, kernel_size = 3, interpolate_method_name = "LANCZOS", grayscale = 0):
+def llava_api(images, queries, model_name, batch_size = 1, layer_index = 20, enhance_coe = 10, kernel_size = 3, interpolate_method_name = "LANCZOS", grayscale = 0):
 
     """
     Generates image masks and blends them using the specified model and parameters.
@@ -278,7 +279,7 @@ def llava_api(images, queries, model_name, batch_size = 1, layer_index = 24, enh
     queries (list): list of queries. Each item is a str. 
     batch_size (int): Batch size for processing images. Only support 1.
     model_name (str): Name of the model to load the pretrained model. One of "llava-v1.5-7b" and "llava-v1.5-13b".
-    layer_index (int): Index of the layer in the model to hook. Default is 20.
+    layer_index (int): Index of the layer in the model to hook. Default is 20 (mid-layer).
     enhance_coe (int): Enhancement coefficient for mask blending. Default is 10.
     kernel_size (int): Kernel size for mask blending. Should be odd numbers. Default is 3.
     interpolate_method_name (str): Name of the interpolation method for image processing. Can be any interpolation method supported by PIL.Image.resize. Default is "LANCZOS".
@@ -328,3 +329,134 @@ def llava_api(images, queries, model_name, batch_size = 1, layer_index = 24, enh
             mota_masks.append(mota_mask)
             
     return masked_images, attention_maps, mota_masks
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Batched attention extraction
+# ────────────────────────────────────────────────────────────────────────────
+
+class BatchMaskHookLogger(object):
+    """
+    Hook logger for batched attention extraction from a specific layer.
+    Handles per-sample image token ranges (different due to padding offsets).
+    Monkey-patches only the target layer to force output_attentions=True,
+    so all other layers keep using fast SDPA / default attention.
+    """
+
+    def __init__(self, model, device, layer_index=20):
+        self.device = device
+        self.model = model
+        self.layer_index = layer_index
+        self.hook_handle = None
+        self.num_image_tokens = 576  # 24x24 patches for LLaVA-1.5
+
+        # Per-sample state
+        self.image_token_starts = None  # List[int]
+        self.image_token_ends = None    # List[int]
+        self.batch_size = 0
+
+        # Accumulated attention per generation step: list of [batch, 576] tensors
+        self.step_attentions = []
+
+        # Monkey-patch bookkeeping
+        self._original_forward = None
+
+    def set_batch_image_token_ranges(self, starts, ends):
+        """Set per-sample image token start/end positions."""
+        assert len(starts) == len(ends)
+        self.image_token_starts = starts
+        self.image_token_ends = ends
+        self.batch_size = len(starts)
+
+    # ── hook callback ──────────────────────────────────────────────────────
+
+    @torch.no_grad()
+    def _attention_hook(self, module, input, output):
+        if not isinstance(output, tuple) or len(output) < 2:
+            return
+        attn_weights = output[1]
+        if attn_weights is None or not isinstance(attn_weights, torch.Tensor):
+            return
+        if len(attn_weights.shape) != 4:  # [batch, heads, q_len, kv_len]
+            return
+        self._process_attention(attn_weights)
+
+    @torch.no_grad()
+    def _process_attention(self, attn_weights):
+        bsz = attn_weights.shape[0]
+        per_sample = []
+        for b in range(bsz):
+            st = self.image_token_starts[b]
+            ed = min(self.image_token_ends[b], attn_weights.shape[-1])
+            # Last query token's attention to image tokens
+            img_attn = attn_weights[b, :, -1, st:ed].detach()  # [heads, img_tokens]
+            # Re-normalize sliced attention (already post-softmax, do NOT apply softmax again)
+            img_attn = (img_attn / (img_attn.sum(dim=-1, keepdim=True) + 1e-12)).mean(dim=0)  # [img_tokens]
+            per_sample.append(img_attn)
+        self.step_attentions.append(torch.stack(per_sample, dim=0))  # [bsz, 576]
+
+    # ── finalize ───────────────────────────────────────────────────────────
+
+    @torch.no_grad()
+    def finalize_batch(self):
+        """Return list of [24, 24] attention maps, one per sample."""
+        if len(self.step_attentions) == 0:
+            return [
+                torch.ones(self.num_image_tokens, device=self.device)
+                / self.num_image_tokens
+                for _ in range(self.batch_size)
+            ]
+        all_steps = torch.stack(self.step_attentions, dim=0)  # [steps, bsz, 576]
+        avg = all_steps.mean(dim=0)  # [bsz, 576]
+        return [avg[i].view(24, 24) for i in range(self.batch_size)]
+
+    # ── lifecycle ──────────────────────────────────────────────────────────
+
+    def reinit(self):
+        self.step_attentions = []
+        self.image_token_starts = None
+        self.image_token_ends = None
+        self.batch_size = 0
+        torch.cuda.empty_cache()
+
+    def register_hook_and_patch(self):
+        """Register hook AND monkey-patch target layer to force output_attentions."""
+        if self.hook_handle is not None:
+            self.hook_handle.remove()
+
+        attn_layer = self.model.model.layers[self.layer_index].self_attn
+        self.hook_handle = attn_layer.register_forward_hook(self._attention_hook)
+
+        # Monkey-patch: force output_attentions=True for this layer only
+        self._original_forward = attn_layer.forward
+        _orig = self._original_forward
+
+        def _patched_forward(*args, **kwargs):
+            kwargs["output_attentions"] = True
+            return _orig(*args, **kwargs)
+
+        attn_layer.forward = _patched_forward
+
+    def remove_hook_and_unpatch(self):
+        if self.hook_handle is not None:
+            self.hook_handle.remove()
+            self.hook_handle = None
+        if self._original_forward is not None:
+            self.model.model.layers[self.layer_index].self_attn.forward = (
+                self._original_forward
+            )
+            self._original_forward = None
+
+
+def batch_hook_logger(model, device, layer_index=20):
+    """
+    Create and register a BatchMaskHookLogger.
+
+    Unlike hook_logger(), this does NOT set model.config.output_attentions = True.
+    Only the target layer is patched to produce attention weights.
+    """
+    prs = BatchMaskHookLogger(model, device, layer_index)
+    model.config.output_attentions = False
+    prs.register_hook_and_patch()
+    model.batch_hooklogger = prs
+    return prs

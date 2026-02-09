@@ -482,8 +482,8 @@ def save_warped_image(image_path, att_map,
         # Set transform function
         transform_name = set_transform_function(transform, exp_scale, exp_divisor, apply_inverse)
         
-        # Process image (Warping) - output will be of input_original_w, input_original_h
-        warped_image = warp_image_by_attention(image_for_warping, att_map, input_original_w, input_original_h)
+        # Process image (Warping) - output will be width x height
+        warped_image = warp_image_by_attention(image_for_warping, att_map, width, height)
         if warped_image is None:
             raise ValueError("Warping failed")
         
